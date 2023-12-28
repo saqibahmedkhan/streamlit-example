@@ -11,9 +11,3 @@ st.write("You entered:", number_input)
 with open('svm_model.pkl', 'rb') as model_file:
 
     loaded_model = pickle.load(model_file)
-
-predictions = loaded_model.predict(X_test)
-
-accuracy = accuracy_score(y_test, predictions)
-
-print(f"Accuracy: {accuracy}")
