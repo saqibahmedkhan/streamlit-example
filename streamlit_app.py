@@ -99,7 +99,7 @@ if user_query:
     st.subheader("Answer")
     st.write(answer)
 
-    with st.expander("Context Used"):
-        for i, doc in enumerate(top_docs):
-            st.markdown(f"**Document {i+1}:**")
-            st.text(doc)
+#    with st.expander("Context Used"):
+#        for i, doc in enumerate(top_docs):
+#            st.markdown(f"**Document {i+1}:**")
+#            st.text(doc)
