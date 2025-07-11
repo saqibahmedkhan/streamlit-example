@@ -1,38 +1,35 @@
-from packaging import version
-from openai import OpenAI
 import os
 import faiss
 import numpy as np
 from typing import List
+from openai import OpenAI
 import tiktoken
 import streamlit as st
 
+# Load API key from Streamlit secrets
 op_key = st.secrets["api_keys"]["openai_key"]
-
-client = OpenAI(api_key = op_key)
+client = OpenAI(api_key=op_key)
 
 DATA_DIR = os.getcwd()
 
+# Load .txt documents
 def load_documents(folder_path: str):
     documents = []
     filenames = []
     for filename in os.listdir(folder_path):
         if filename.endswith(".txt"):
             with open(os.path.join(folder_path, filename), "r", encoding="utf-8") as f:
-                content = f.read()
-                documents.append(content)
+                documents.append(f.read())
                 filenames.append(filename)
     return documents, filenames
 
-# Split into chunks for embedding (optional: for long files)
+# Split documents into chunks
 def split_text(text, max_tokens=200):
     enc = tiktoken.encoding_for_model("text-embedding-3-small")
     tokens = enc.encode(text)
-    chunks = [enc.decode(tokens[i:i+max_tokens]) for i in range(0, len(tokens), max_tokens)]
-    return chunks
+    return [enc.decode(tokens[i:i+max_tokens]) for i in range(0, len(tokens), max_tokens)]
 
-
-# Get OpenAI embeddings
+# Generate OpenAI embeddings
 def get_embedding(text: str) -> List[float]:
     result = client.embeddings.create(
         model="text-embedding-3-small",
@@ -40,21 +37,12 @@ def get_embedding(text: str) -> List[float]:
     )
     return result.data[0].embedding
 
-
-# Create FAISS index from documents
+# Build FAISS index
 def build_faiss_index(docs: List[str]):
     index = faiss.IndexFlatL2(1536)
-    embeddings = []
-    for doc in docs:
-        emb = get_embedding(doc)
-        print(emb)
-        embeddings.append(emb)
+    embeddings = [get_embedding(doc) for doc in docs]
     index.add(np.array(embeddings).astype("float32"))
-
-    np.save("index.npy", index)
-    
     np.save("embeddings.npy", embeddings)
-
     return index, embeddings
 
 # Search top-k similar documents
@@ -63,13 +51,11 @@ def search_similar_documents(query, docs, embeddings, index, k=3):
     D, I = index.search(query_emb, k)
     return [docs[i] for i in I[0]]
 
-# Send context + query to GPT-4
-
-
+# Generate answer from GPT-4
 def generate_answer(context_docs, user_query):
     context = "\n\n---\n\n".join(context_docs)
     messages = [
-        {"role": "system", "content": "You are a helpful assistant who answers based on the provided context. Answer the question directly without mentioning the data source, documents, or context used to generate the answer. Just assume that the context was part of the document that you were being trained on. "},
+        {"role": "system", "content": "You are a helpful assistant who answers based on the provided context. Answer the question directly without mentioning the data source."},
         {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_query}"}
     ]
     response = client.chat.completions.create(
@@ -78,61 +64,42 @@ def generate_answer(context_docs, user_query):
         temperature=0.6,
         max_tokens=200
     )
-    
-    #print(response.model)
-    
     return response.choices[0].message.content
 
-def main():
-    
-    print("Loading documents...")
-    
-    raw_docs, filenames = load_documents(DATA_DIR)
+# Streamlit App
+st.set_page_config(page_title="Kalorist Q&A", layout="centered")
+st.title("Kalorist Question Answering")
 
+# Load and index documents only once
+@st.cache_resource(show_spinner="Indexing documents...")
+def initialize_index():
+    raw_docs, filenames = load_documents(DATA_DIR)
     docs = []
-    
     for doc in raw_docs:
-        
         docs.extend(split_text(doc))
-    
-    print("Building vector store...")
-    
-    if os.path.exists("index.npy"):
-        
-        if os.path.exists("embeddings.npy"):
-        
-            print("Index exists, loading it...")
-        
-            index = np.load("index.npy", allow_pickle=True)
-        
-            print("Embedding exists, loading it...")
-            
-            embeddings = np.load("embeddings.npy", allow_pickle=True)
-            
-            index = faiss.IndexFlatL2(1536)
-    
-            index.add(np.array(embeddings).astype("float32"))
-        
+
+    if os.path.exists("embeddings.npy"):
+        embeddings = np.load("embeddings.npy", allow_pickle=True)
+        index = faiss.IndexFlatL2(1536)
+        index.add(np.array(embeddings).astype("float32"))
     else:
-        
-        print("Index and not found, creating a new one...")
-        
         index, embeddings = build_faiss_index(docs)
 
-    while True:
-        
-        query = input("\nEnter your question (or type 'exit'): ")
-        
-        if query.lower() == "exit":
-            
-            break
+    return docs, embeddings, index
 
-        top_docs = search_similar_documents(query, docs, embeddings, index, k=3)
-        
-        answer = generate_answer(top_docs, query)
-        
-        print("\nAnswer:\n", answer)
+docs, embeddings, index = initialize_index()
 
-if __name__ == "__main__":
+# Input field
+user_query = st.text_input("Ask a question based on the documents:")
 
-    main()
+if user_query:
+    top_docs = search_similar_documents(user_query, docs, embeddings, index)
+    answer = generate_answer(top_docs, user_query)
+
+    st.subheader("Answer")
+    st.write(answer)
+
+    with st.expander("Context Used"):
+        for i, doc in enumerate(top_docs):
+            st.markdown(f"**Document {i+1}:**")
+            st.text(doc)
