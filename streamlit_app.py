@@ -49,7 +49,7 @@ def build_faiss_index(docs: List[str]):
 def search_similar_documents(query, docs, embeddings, index, k=3):
     query_emb = np.array(get_embedding(query)).astype("float32").reshape(1, -1)
     D, I = index.search(query_emb, k)
-    return [docs[i] for i in I[0]]
+    return [docs[i] for i in I[0] if i < len(docs)]
 
 # Generate answer from GPT-4
 def generate_answer(context_docs, user_query):
