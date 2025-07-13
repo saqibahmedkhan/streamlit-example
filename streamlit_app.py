@@ -59,7 +59,7 @@ def generate_answer(context_docs, user_query):
         {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_query}"}
     ]
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4.1-nano-2025-04-14",
         messages=messages,
         temperature=0.6,
         max_tokens=200
